@@ -136,7 +136,7 @@ class HWPParser:
             raise
     
     def _extract_with_olefile(self, hwp_path: str) -> str:
-        """Extract text using olefile (fallback method)."""
+        """Extract text using olefile - tries multiple streams."""
         text_parts = []
         
         try:
@@ -146,26 +146,84 @@ class HWPParser:
             
             ole = olefile.OleFileIO(hwp_path)
             
-            # Try to read BodyText stream (common in HWP files)
-            try:
-                if ole.exists("BodyText"):
-                    stream = ole.openstream("BodyText")
-                    data = stream.read()
-                    # Basic text extraction (HWP format is complex)
-                    # This is a simplified approach
-                    try:
-                        text = data.decode("utf-8", errors="ignore")
-                        # Filter out non-printable characters
-                        text = "".join(c for c in text if c.isprintable() or c in "\n\r\t")
-                        text_parts.append(text)
-                    except Exception:
-                        pass
-            except Exception as e:
-                self.logger.debug(f"Could not read BodyText stream: {e}")
+            # List all streams for debugging
+            all_streams = ole.listdir()
+            self.logger.debug(f"HWP streams found: {[s[0] if isinstance(s, tuple) else s for s in all_streams[:10]]}")
+            
+            # Try multiple common HWP text streams
+            streams_to_try = [
+                "BodyText",
+                "PrvText",  # Preview text
+                "DocInfo",  # Document info
+            ]
+            
+            # Try Section streams (Section0, Section1, ...)
+            for i in range(20):  # Check up to 20 sections
+                streams_to_try.append(f"Section{i}")
+            
+            # Try all streams
+            for stream_name in streams_to_try:
+                try:
+                    if ole.exists(stream_name):
+                        stream = ole.openstream(stream_name)
+                        data = stream.read()
+                        
+                        if not data:
+                            continue
+                        
+                        # Try different encodings
+                        encodings = ['utf-8', 'utf-16', 'utf-16-le', 'utf-16-be', 'cp949', 'euc-kr', 'latin1']
+                        
+                        for encoding in encodings:
+                            try:
+                                text = data.decode(encoding, errors="ignore")
+                                
+                                # Filter and clean text
+                                # Keep Korean characters, alphanumeric, and common punctuation
+                                cleaned = []
+                                for char in text:
+                                    # Keep printable characters, Korean, and whitespace
+                                    if (char.isprintable() or 
+                                        '\uAC00' <= char <= '\uD7A3' or  # Korean syllables
+                                        char in "\n\r\t"):
+                                        cleaned.append(char)
+                                
+                                text = "".join(cleaned)
+                                
+                                # Check if text looks meaningful (has Korean or alphanumeric)
+                                if len(text.strip()) > 50:  # Minimum meaningful length
+                                    # Check if it contains Korean or alphanumeric
+                                    has_content = any(
+                                        '\uAC00' <= c <= '\uD7A3' or  # Korean
+                                        c.isalnum()  # Alphanumeric
+                                        for c in text[:100]  # Check first 100 chars
+                                    )
+                                    
+                                    if has_content:
+                                        text_parts.append(text.strip())
+                                        self.logger.debug(f"Extracted text from stream: {stream_name} ({len(text)} chars)")
+                                        break  # Success with this encoding
+                            except (UnicodeDecodeError, UnicodeError):
+                                continue
+                        
+                        stream.close()
+                
+                except Exception as e:
+                    self.logger.debug(f"Could not read stream {stream_name}: {e}")
+                    continue
             
             ole.close()
             
-            return "\n".join(text_parts)
+            # Combine all text parts
+            combined_text = "\n\n".join(text_parts)
+            
+            if not combined_text or len(combined_text.strip()) < 10:
+                self.logger.warning(
+                    f"Could not extract meaningful text from HWP file: {hwp_path}. "
+                    f"Tried {len(streams_to_try)} streams."
+                )
+            
+            return combined_text
         
         except Exception as e:
             self.logger.warning(f"Error reading HWP with olefile {hwp_path}: {e}")
