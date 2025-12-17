@@ -86,27 +86,54 @@ class ChunkingAgent:
 
         self.logger.info(f"Found {len(json_files)} preprocessed files to chunk")
 
+        processed_count = 0
+        empty_text_count = 0
+        error_count = 0
+        
         for fp in json_files:
             try:
                 data = load_json(str(fp))
                 text = data.get("text", "")
                 meta = data.get("metadata", {}) or {}
 
+                # 텍스트가 비어있는지 확인
+                if not text or not text.strip():
+                    empty_text_count += 1
+                    if empty_text_count <= 3:  # 처음 3개만 로그
+                        self.logger.warning(
+                            f"Empty or missing text in {fp.name}. "
+                            f"Keys in JSON: {list(data.keys())}"
+                        )
+                    continue
+
                 # doc_id 우선순위: 메타데이터 공고번호 -> 파일명
                 doc_id = str(meta.get("공고 번호") or fp.stem)
 
                 chunks = self.process_document(text, doc_id=doc_id, metadata=meta)
+                
+                if not chunks:
+                    self.logger.warning(f"No chunks created for {fp.name} (text length: {len(text)})")
+                    continue
+                
                 all_chunks.extend(chunks)
                 total_lengths.extend(len(c["chunk_text"]) for c in chunks)
+                processed_count += 1
 
             except Exception as e:
-                self.logger.error(f"Failed to chunk file {fp}: {e}")
+                error_count += 1
+                self.logger.error(f"Failed to chunk file {fp}: {e}", exc_info=True)
                 continue
 
+        # 통계 로그
+        self.logger.info(f"Processed files: {processed_count}/{len(json_files)}")
+        self.logger.info(f"Files with empty text: {empty_text_count}")
+        self.logger.info(f"Files with errors: {error_count}")
+        
         if not all_chunks:
             error_msg = (
-                "No chunks were created. "
-                "Check if input JSON files contain valid text data."
+                f"No chunks were created from {len(json_files)} files. "
+                f"Processed: {processed_count}, Empty text: {empty_text_count}, Errors: {error_count}. "
+                "Check if input JSON files contain valid 'text' field with non-empty content."
             )
             self.logger.error(error_msg)
             raise ValueError(error_msg)

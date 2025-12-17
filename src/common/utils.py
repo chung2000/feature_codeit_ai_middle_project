@@ -98,8 +98,12 @@ def get_file_size(file_path: str) -> int:
 
 
 def get_file_extension(file_path: str) -> str:
-    """Get file extension (without dot)."""
-    return Path(file_path).suffix[1:].lower()
+    """Get file extension (with dot, e.g., '.hwp', '.pdf')."""
+    suffix = Path(file_path).suffix.lower()
+    # Ensure it starts with dot
+    if suffix and not suffix.startswith('.'):
+        return '.' + suffix
+    return suffix if suffix else ''
 
 
 def normalize_text(text: str) -> str:
