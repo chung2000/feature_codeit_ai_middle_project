@@ -6,6 +6,7 @@ from tqdm import tqdm
 
 from src.ingest.pdf_parser import PDFParser
 from src.ingest.hwp_parser import HWPParser
+from src.ingest.docx_parser import DOCXParser
 from src.ingest.normalizer import TextNormalizer
 from src.ingest.metadata_loader import MetadataLoader
 from src.common.logger import get_logger
@@ -13,6 +14,7 @@ from src.common.utils import ensure_dir, save_json, get_file_extension
 from src.common.constants import (
     SUPPORTED_PDF_EXTENSIONS,
     SUPPORTED_HWP_EXTENSIONS,
+    SUPPORTED_DOCX_EXTENSIONS,
     SUPPORTED_EXTENSIONS,
     STATUS_SUCCESS,
     STATUS_FAILED,
@@ -33,6 +35,7 @@ class IngestAgent:
         self.config = config.get("ingest", {})
         self.pdf_parser = PDFParser()
         self.hwp_parser = HWPParser()
+        self.docx_parser = DOCXParser()
         self.normalizer = TextNormalizer()
         self.metadata_loader = MetadataLoader()
         self.logger = get_logger(__name__)
@@ -80,6 +83,8 @@ class IngestAgent:
                 parser_result = self.pdf_parser.parse(file_path)
             elif file_ext in SUPPORTED_HWP_EXTENSIONS:
                 parser_result = self.hwp_parser.parse(file_path)
+            elif file_ext in SUPPORTED_DOCX_EXTENSIONS:
+                parser_result = self.docx_parser.parse(file_path)
             else:
                 raise ValueError(
                     f"Unsupported file format: {file_ext}. "

@@ -8,6 +8,7 @@ chromadb
 rapidfuzz
 olefile
 pyhwp  # HWP file parser for Korean documents
+python-docx  # DOCX file parser
 pyyaml
 tqdm
 numpy
