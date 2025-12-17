@@ -1,0 +1,82 @@
+llm:
+  provider: openai
+  model: gpt-4o-mini
+  temperature: 0.2
+  max_tokens: 2000
+
+embedding:
+  provider: openai
+  model: text-embedding-3-large
+
+vector_store:
+  type: chroma
+  persist_dir: data/index/chroma
+  collection_name: rfp_chunks
+
+# Ingest Agent settings
+ingest:
+  input_dir: data/files
+  output_dir: data/preprocessed
+  metadata_csv: data/data_list.csv
+  min_text_length: 100
+  enable_ocr: false
+  ocr_language: kor+eng
+
+# Chunking Agent settings
+chunking:
+  chunk_size: 1000
+  chunk_overlap: 200
+  min_chunk_size: 100
+  use_section_based: true
+  separators: ["\n\n", "\n", ". ", "! ", "? ", "。", " "]
+
+# Indexing Agent settings
+indexing:
+  embedding_model: text-embedding-3-large
+  embedding_provider: openai
+  batch_size: 100
+  max_retries: 3
+  retry_delay: 1.0
+  vector_store:
+    type: chroma
+    persist_dir: data/index/chroma
+    collection_name: rfp_chunks
+
+# Retrieval Agent settings
+retrieval:
+  default_top_k: 10
+  max_top_k: 20
+  use_hybrid_search: false
+  use_bm25: false
+  hybrid_alpha: 0.7
+  use_rerank: true
+  mmr_lambda: 0.5
+  fuzzy_threshold: 0.8
+
+# Generation Agent settings
+generation:
+  llm:
+    provider: openai
+    model: gpt-4o-mini
+    temperature: 0.2
+    max_tokens: 2000
+  rag:
+    context_max_tokens: 8000
+    top_k_for_context: 5
+    include_metadata: true
+  summarization:
+    max_summary_length: 500
+    include_key_points: true
+
+# Eval Agent settings
+eval:
+  test_set_path: data/eval/test_set.jsonl
+  output_dir: data/eval/reports
+  k_values: [1, 5, 10, 20]
+  use_llm_eval: false
+  performance_test_queries: 100
+
+# Logging settings
+logging:
+  level: INFO
+  log_file: null

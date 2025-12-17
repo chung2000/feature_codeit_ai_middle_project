@@ -1,0 +1,13 @@
+llm:
+  provider: openai
+  model: gpt-4.1
+  temperature: 0.1
+
+embedding:
+  provider: openai
+  model: text-embedding-3-large
+
+vector_store:
+  type: chroma
+  persist_dir: data/index/chroma
+  collection_name: rfp_chunks
