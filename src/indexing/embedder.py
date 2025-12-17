@@ -16,7 +16,11 @@ class Embedder:
 
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment")
+            raise ValueError(
+                "OPENAI_API_KEY not found in environment. "
+                "Please set it using: export OPENAI_API_KEY=sk-your-key-here\n"
+                "See ENV_SETUP.md for detailed instructions."
+            )
 
         model = config.get("embedding_model", "text-embedding-3-large")
         self.batch_size = config.get("batch_size", 100)

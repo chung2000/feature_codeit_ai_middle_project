@@ -1,6 +1,6 @@
 """Structured information extraction module."""
 
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import json
 import re
 

@@ -45,16 +45,30 @@ pip install -r requirements.txt
 
 ### 2. 환경변수 설정
 
-`.env` 파일 생성 (또는 환경변수 설정):
+**⚠️ 중요**: `OPENAI_API_KEY` 환경변수는 필수입니다!
+
+**자세한 설정 방법**: [ENV_SETUP.md](./ENV_SETUP.md) 참조
+
+**빠른 설정**:
 
 ```bash
-export OPENAI_API_KEY=your_api_key_here
+# Linux/Mac
+export OPENAI_API_KEY=sk-your-api-key-here
+
+# 확인
+echo $OPENAI_API_KEY
 ```
 
-또는 `.env` 파일:
+또는 `.env` 파일 생성:
 
 ```
-OPENAI_API_KEY=your_api_key_here
+OPENAI_API_KEY=sk-your-api-key-here
+```
+
+그리고 실행 전에:
+
+```bash
+export $(cat .env | xargs)
 ```
 
 ### 3. 데이터 준비
@@ -237,13 +251,30 @@ python entrypoint/train.py --config config/local.yaml
 
 ### 2. OpenAI API 키 오류
 
+**에러 메시지**: `OPENAI_API_KEY not found in environment`
+
+**해결 방법**:
+
 ```bash
-# 환경변수 확인
+# 1. 환경변수 설정
+export OPENAI_API_KEY=sk-your-api-key-here
+
+# 2. 확인
 echo $OPENAI_API_KEY
 
-# 또는 .env 파일 사용
-export $(cat .env | xargs)
+# 3. 다시 실행
+python entrypoint/train.py --config config/local.yaml --step all
 ```
+
+**서버에서 영구 설정** (선택):
+
+```bash
+# ~/.bashrc 또는 ~/.zshrc에 추가
+echo 'export OPENAI_API_KEY=sk-your-api-key-here' >> ~/.bashrc
+source ~/.bashrc
+```
+
+**자세한 내용**: [ENV_SETUP.md](./ENV_SETUP.md) 참조
 
 ### 3. 파일 경로 오류
 

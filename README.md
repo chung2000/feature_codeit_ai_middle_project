@@ -7,13 +7,15 @@
 
 ## 🚀 빠른 시작 (Quick Start)
 
-**실행 가이드**: [EXECUTION_GUIDE.md](./EXECUTION_GUIDE.md) 참조
+**실행 가이드**: [EXECUTION_GUIDE.md](./EXECUTION_GUIDE.md) 참조  
+**테스트 가이드**: [TESTING_GUIDE.md](./TESTING_GUIDE.md) 참조  
+**환경변수 설정**: [ENV_SETUP.md](./ENV_SETUP.md) 참조
 
 ### 기본 실행 순서
 
 ```bash
 # 1. 환경 설정
-export OPENAI_API_KEY=your_key_here
+export OPENAI_API_KEY=your_key_here  # 필수! ENV_SETUP.md 참조
 pip install -r requirements.txt
 
 # 2. 전체 파이프라인 실행
@@ -23,7 +25,8 @@ python entrypoint/train.py --config config/local.yaml --step all
 python entrypoint/inference.py --config config/local.yaml --mode qa --query "질문"
 ```
 
-자세한 실행 방법은 **[EXECUTION_GUIDE.md](./EXECUTION_GUIDE.md)**를 참조하세요.
+자세한 실행 방법은 **[EXECUTION_GUIDE.md](./EXECUTION_GUIDE.md)**를 참조하세요.  
+테스트 방법은 **[TESTING_GUIDE.md](./TESTING_GUIDE.md)**를 참조하세요.
 
 ---
 
