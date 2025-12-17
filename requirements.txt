@@ -23,3 +23,6 @@ rank-bm25
 # Evaluation
 rouge-score
 nltk
+
+# Environment variables
+python-dotenv
