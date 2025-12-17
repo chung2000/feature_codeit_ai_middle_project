@@ -72,18 +72,37 @@ def main():
             from src.chunking.chunking_agent import ChunkingAgent
             
             chunking_agent = ChunkingAgent(config)
+            chunks_path = "data/features/chunks.jsonl"
             chunking_agent.process_batch(
                 input_dir=config["ingest"]["output_dir"],
-                output_path="data/features/chunks.jsonl",
+                output_path=chunks_path,
             )
+            
+            # Check if chunks file was created
+            chunks_file = Path(chunks_path)
+            if not chunks_file.exists():
+                raise FileNotFoundError(
+                    f"Chunks file not created: {chunks_path}. "
+                    "Check if ingest step completed successfully and produced JSON files."
+                )
+            
             logger.info("✓ Chunking step completed")
         
         if args.step in ["indexing", "all"]:
             logger.info("Step 3: Indexing Agent - Vector Embedding & Indexing")
             from src.indexing.indexing_agent import IndexingAgent
             
+            chunks_path = "data/features/chunks.jsonl"
+            chunks_file = Path(chunks_path)
+            
+            if not chunks_file.exists():
+                raise FileNotFoundError(
+                    f"Chunks file not found: {chunks_path}. "
+                    "Please run chunking step first: --step chunking"
+                )
+            
             indexing_agent = IndexingAgent(config)
-            report = indexing_agent.index_chunks("data/features/chunks.jsonl")
+            report = indexing_agent.index_chunks(chunks_path)
             logger.info(f"✓ Indexing step completed: {report}")
         
         logger.info("=" * 60)

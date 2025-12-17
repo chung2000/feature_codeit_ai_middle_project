@@ -74,8 +74,12 @@ class ChunkingAgent:
 
         json_files = sorted(input_path.glob("*.json"))
         if not json_files:
-            self.logger.warning(f"No JSON files found in {input_dir}. Run ingest step first.")
-            return
+            error_msg = (
+                f"No JSON files found in {input_dir}. "
+                "Please run ingest step first to generate preprocessed JSON files."
+            )
+            self.logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
 
         all_chunks: List[Dict] = []
         total_lengths: List[int] = []
@@ -100,8 +104,12 @@ class ChunkingAgent:
                 continue
 
         if not all_chunks:
-            self.logger.warning("No chunks were created. Check input data.")
-            return
+            error_msg = (
+                "No chunks were created. "
+                "Check if input JSON files contain valid text data."
+            )
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
 
         # Save to JSONL
         save_jsonl(all_chunks, output_path)
