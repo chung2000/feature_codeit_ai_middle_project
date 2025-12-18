@@ -1,0 +1,239 @@
+"""Proposal generation module - generates proposals based on RFP documents."""
+
+import json
+from typing import Dict, List, Optional
+
+from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
+from src.common.logger import get_logger
+
+
+PROPOSAL_PROMPT = """다음은 RFP(제안요청서) 문서의 내용입니다. 이 문서를 분석하여 전문적인 제안서를 작성하세요.
+
+RFP 문서 내용:
+{context}
+
+제안서는 다음 구조로 작성하세요:
+
+## 1. 사업 이해 및 배경
+- RFP의 핵심 목적과 배경 설명
+- 발주 기관의 요구사항 분석
+- 사업의 중요성 및 필요성
+
+## 2. 제안 개요
+- 제안의 핵심 가치 제안
+- 우리의 접근 방식 및 차별화 포인트
+- 기대 효과
+
+## 3. 기술 제안
+- 시스템 아키텍처 및 기술 스택
+- 핵심 기능 및 모듈
+- 기술적 우수성 및 혁신성
+
+## 4. 사업 수행 계획
+- 프로젝트 일정 및 마일스톤
+- 단계별 수행 계획
+- 리스크 관리 방안
+
+## 5. 조직 및 인력 구성
+- 프로젝트 조직도
+- 핵심 인력 및 역할
+- 경험 및 역량
+
+## 6. 예산 및 제안 금액
+- 예산 구성 내역
+- 가격 경쟁력
+- 가치 대비 비용
+
+## 7. 기대 효과 및 성과
+- 정량적/정성적 성과 지표
+- ROI 분석
+- 지속 가능성
+
+## 8. 차별화 포인트
+- 경쟁사 대비 우위
+- 특허/기술력
+- 참여 경험 및 실적
+
+위 구조에 따라 전문적이고 설득력 있는 제안서를 작성하세요. RFP의 모든 요구사항을 충족하면서도 우리의 강점을 부각시키세요.
+"""
+
+
+class ProposalGenerator:
+    """Generate proposals based on RFP documents."""
+    
+    def __init__(self, llm, retrieval_agent, config: Dict):
+        """
+        Initialize ProposalGenerator.
+        
+        Args:
+            llm: LangChain LLM instance
+            retrieval_agent: RetrievalAgent instance
+            config: Configuration dictionary
+        """
+        self.llm = llm
+        self.retrieval_agent = retrieval_agent
+        self.config = config.get("proposal", {})
+        self.logger = get_logger(__name__)
+        
+        # Create prompt template
+        system_template = SystemMessagePromptTemplate.from_template(
+            "당신은 전문 제안서 작성 전문가입니다. RFP 문서를 분석하여 발주 기관의 요구사항을 완벽히 이해하고, "
+            "경쟁력 있고 설득력 있는 제안서를 작성하세요. 기술적 정확성과 비즈니스 가치를 균형있게 제시하세요."
+        )
+        human_template = HumanMessagePromptTemplate.from_template(PROPOSAL_PROMPT)
+        
+        self.prompt = ChatPromptTemplate.from_messages([
+            system_template,
+            human_template
+        ])
+    
+    def generate_from_query(
+        self,
+        query: str,
+        top_k: int = 30,
+        company_info: Optional[Dict] = None
+    ) -> Dict:
+        """
+        Generate proposal based on search query.
+        
+        Args:
+            query: Search query to find relevant RFP documents
+            top_k: Number of chunks to retrieve
+            company_info: Optional company information to include in proposal
+        
+        Returns:
+            Dictionary with proposal content and metadata
+        """
+        # Retrieve relevant documents
+        retrieval_results = self.retrieval_agent.retrieve(query, top_k=top_k)
+        
+        if not retrieval_results["results"]:
+            self.logger.warning(f"No documents found for query: {query}")
+            return {
+                "proposal": "관련 RFP 문서를 찾을 수 없습니다.",
+                "sources": [],
+                "query": query
+            }
+        
+        # Build context from retrieved chunks
+        context = self._build_context(retrieval_results["results"])
+        
+        # Add company info to context if provided
+        if company_info:
+            company_context = self._format_company_info(company_info)
+            context = f"{company_context}\n\n{context}"
+        
+        # Generate proposal
+        messages = self.prompt.format_messages(context=context)
+        
+        try:
+            response = self.llm.invoke(messages)
+            proposal_text = response.content
+        except Exception as e:
+            self.logger.error(f"Failed to generate proposal: {e}", exc_info=True)
+            raise
+        
+        # Extract source document IDs
+        source_doc_ids = list(set([
+            r.get("metadata", {}).get("doc_id", "unknown")
+            for r in retrieval_results["results"]
+        ]))
+        
+        return {
+            "proposal": proposal_text,
+            "sources": source_doc_ids,
+            "query": query,
+            "total_chunks_used": len(retrieval_results["results"])
+        }
+    
+    def generate_from_doc_id(
+        self,
+        doc_id: str,
+        top_k: int = 30,
+        company_info: Optional[Dict] = None
+    ) -> Dict:
+        """
+        Generate proposal for a specific document.
+        
+        Args:
+            doc_id: Document ID
+            top_k: Number of chunks to retrieve
+            company_info: Optional company information to include in proposal
+        
+        Returns:
+            Dictionary with proposal content and metadata
+        """
+        # Search for document chunks
+        query = f"문서 {doc_id}"
+        retrieval_results = self.retrieval_agent.retrieve(query, top_k=top_k)
+        
+        # Filter to only chunks from this document
+        doc_chunks = [
+            r for r in retrieval_results["results"]
+            if r.get("metadata", {}).get("doc_id") == doc_id
+        ]
+        
+        if not doc_chunks:
+            self.logger.warning(f"No chunks found for document {doc_id}")
+            return {
+                "proposal": "문서를 찾을 수 없습니다.",
+                "sources": [],
+                "doc_id": doc_id
+            }
+        
+        # Build context
+        context = self._build_context(doc_chunks)
+        
+        # Add company info if provided
+        if company_info:
+            company_context = self._format_company_info(company_info)
+            context = f"{company_context}\n\n{context}"
+        
+        # Generate proposal
+        messages = self.prompt.format_messages(context=context)
+        
+        try:
+            response = self.llm.invoke(messages)
+            proposal_text = response.content
+        except Exception as e:
+            self.logger.error(f"Failed to generate proposal: {e}", exc_info=True)
+            raise
+        
+        return {
+            "proposal": proposal_text,
+            "sources": [doc_id],
+            "doc_id": doc_id,
+            "total_chunks_used": len(doc_chunks)
+        }
+    
+    def _build_context(self, chunks: List[Dict]) -> str:
+        """Build context from chunks."""
+        context_parts = []
+        for i, chunk in enumerate(chunks, 1):
+            metadata = chunk.get("metadata", {})
+            doc_id = metadata.get("doc_id", "unknown")
+            business_name = metadata.get("사업명", metadata.get("business_name", ""))
+            
+            context_parts.append(
+                f"[문서 {i}] (문서 ID: {doc_id}, 사업명: {business_name})\n"
+                f"{chunk.get('chunk_text', '')}"
+            )
+        return "\n\n" + "="*80 + "\n\n".join(context_parts)
+    
+    def _format_company_info(self, company_info: Dict) -> str:
+        """Format company information for context."""
+        parts = ["[회사 정보]"]
+        
+        if company_info.get("company_name"):
+            parts.append(f"회사명: {company_info['company_name']}")
+        if company_info.get("description"):
+            parts.append(f"회사 소개: {company_info['description']}")
+        if company_info.get("strengths"):
+            parts.append(f"핵심 역량: {', '.join(company_info['strengths'])}")
+        if company_info.get("experience"):
+            parts.append(f"주요 경험: {company_info['experience']}")
+        if company_info.get("technologies"):
+            parts.append(f"기술 스택: {', '.join(company_info['technologies'])}")
+        
+        return "\n".join(parts)
+

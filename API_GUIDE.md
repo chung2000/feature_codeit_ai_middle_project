@@ -243,6 +243,86 @@ curl -X POST "http://localhost:8000/api/extract" \
 
 ---
 
+### 6. 제안서 생성 (Generate Proposal)
+
+**POST** `/api/generate-proposal`
+
+RFP 문서를 기반으로 제안서 자동 생성
+
+**요청 (검색 쿼리 기반):**
+
+```json
+{
+  "query": "교육 관련 사업",
+  "top_k": 30,
+  "company_info": {
+    "company_name": "우리기업",
+    "description": "AI 기반 솔루션 전문 기업",
+    "strengths": ["AI 기술", "빅데이터 분석", "클라우드 인프라"],
+    "experience": "정부 프로젝트 10건 이상 수행",
+    "technologies": ["Python", "TensorFlow", "AWS", "Docker"]
+  }
+}
+```
+
+**요청 (문서 ID 기반):**
+
+```json
+{
+  "doc_id": "20241218257",
+  "top_k": 30,
+  "company_info": {
+    "company_name": "우리기업",
+    "description": "AI 기반 솔루션 전문 기업"
+  }
+}
+```
+
+**응답:**
+
+```json
+{
+  "proposal": "## 1. 사업 이해 및 배경\n\n이 사업은...\n\n## 2. 제안 개요\n\n...",
+  "sources": ["20241218257", "20241218258"],
+  "query": "교육 관련 사업",
+  "total_chunks_used": 25
+}
+```
+
+**cURL 예시:**
+
+```bash
+# 검색 쿼리 기반
+curl -X POST "http://localhost:8000/api/generate-proposal" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "교육 관련 사업",
+    "top_k": 30
+  }'
+
+# 문서 ID 기반
+curl -X POST "http://localhost:8000/api/generate-proposal" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "doc_id": "20241218257"
+  }'
+```
+
+**제안서 구조:**
+
+생성된 제안서는 다음 섹션을 포함합니다:
+
+1. **사업 이해 및 배경** - RFP의 핵심 목적과 배경
+2. **제안 개요** - 핵심 가치 제안 및 차별화 포인트
+3. **기술 제안** - 시스템 아키텍처 및 기술 스택
+4. **사업 수행 계획** - 프로젝트 일정 및 마일스톤
+5. **조직 및 인력 구성** - 프로젝트 조직도 및 핵심 인력
+6. **예산 및 제안 금액** - 예산 구성 내역 및 가격 경쟁력
+7. **기대 효과 및 성과** - 정량적/정성적 성과 지표
+8. **차별화 포인트** - 경쟁사 대비 우위 및 특허/기술력
+
+---
+
 ## 🐍 Python 클라이언트 예시
 
 ```python
@@ -273,6 +353,30 @@ response = requests.post(
 )
 summary = response.json()
 print(summary["summary"])
+
+# 제안서 생성 (검색 쿼리 기반)
+response = requests.post(
+    f"{BASE_URL}/api/generate-proposal",
+    json={
+        "query": "교육 관련 사업",
+        "top_k": 30,
+        "company_info": {
+            "company_name": "우리기업",
+            "description": "AI 기반 솔루션 전문 기업",
+            "strengths": ["AI 기술", "빅데이터 분석"]
+        }
+    }
+)
+proposal = response.json()
+print(proposal["proposal"])
+
+# 제안서 생성 (문서 ID 기반)
+response = requests.post(
+    f"{BASE_URL}/api/generate-proposal",
+    json={"doc_id": "20241218257"}
+)
+proposal = response.json()
+print(proposal["proposal"])
 ```
 
 ---

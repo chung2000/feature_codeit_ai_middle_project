@@ -104,6 +104,21 @@ class ExtractResponse(BaseModel):
     doc_id: str
 
 
+class ProposalRequest(BaseModel):
+    query: Optional[str] = None
+    doc_id: Optional[str] = None
+    top_k: Optional[int] = 30
+    company_info: Optional[Dict] = None
+
+
+class ProposalResponse(BaseModel):
+    proposal: str
+    sources: List[str]
+    query: Optional[str] = None
+    doc_id: Optional[str] = None
+    total_chunks_used: int
+
+
 # Startup event
 @app.on_event("startup")
 async def startup_event():
@@ -281,6 +296,50 @@ async def extract(request: ExtractRequest):
     except Exception as e:
         logger.error(f"Extraction failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
+
+
+# Generate Proposal endpoint
+@app.post("/api/generate-proposal", response_model=ProposalResponse)
+async def generate_proposal(request: ProposalRequest):
+    """
+    Generate a proposal based on RFP documents.
+    
+    Args:
+        request: Proposal request with query or doc_id
+    
+    Returns:
+        Generated proposal with sources
+    """
+    if generation_agent is None:
+        raise HTTPException(status_code=503, detail="Generation agent not initialized")
+    
+    if not request.query and not request.doc_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Either 'query' or 'doc_id' must be provided"
+        )
+    
+    try:
+        result = generation_agent.generate_proposal(
+            query=request.query,
+            doc_id=request.doc_id,
+            top_k=request.top_k,
+            company_info=request.company_info
+        )
+        
+        return ProposalResponse(
+            proposal=result["proposal"],
+            sources=result["sources"],
+            query=result.get("query"),
+            doc_id=result.get("doc_id"),
+            total_chunks_used=result.get("total_chunks_used", 0)
+        )
+    except Exception as e:
+        logger.error(f"Proposal generation failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Proposal generation failed: {str(e)}"
+        )
 
 
 if __name__ == "__main__":

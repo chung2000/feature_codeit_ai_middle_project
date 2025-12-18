@@ -1,10 +1,11 @@
-"""Generation Agent - unified interface for Q&A, summarization, and extraction."""
+"""Generation Agent - unified interface for Q&A, summarization, extraction, and proposal generation."""
 
 from typing import Dict, Optional
 
 from src.generation.qa_chain import QAChain
 from src.generation.summarizer import Summarizer
 from src.generation.extractor import Extractor
+from src.generation.proposal_generator import ProposalGenerator
 from src.common.logger import get_logger
 
 
@@ -26,6 +27,7 @@ class GenerationAgent:
         self.qa_chain = QAChain(llm, retrieval_agent, config)
         self.summarizer = Summarizer(llm, retrieval_agent, config)
         self.extractor = Extractor(llm, retrieval_agent, config)
+        self.proposal_generator = ProposalGenerator(llm, retrieval_agent, config)
     
     def answer_question(self, query: str) -> Dict:
         """
@@ -68,4 +70,38 @@ class GenerationAgent:
             Dictionary with extracted information
         """
         return self.extractor.extract_structured(doc_id, schema=schema)
+    
+    def generate_proposal(
+        self,
+        query: Optional[str] = None,
+        doc_id: Optional[str] = None,
+        top_k: int = 30,
+        company_info: Optional[Dict] = None
+    ) -> Dict:
+        """
+        Generate a proposal based on RFP documents.
+        
+        Args:
+            query: Search query to find relevant RFP documents
+            doc_id: Specific document ID to generate proposal for
+            top_k: Number of chunks to retrieve
+            company_info: Optional company information to include
+        
+        Returns:
+            Dictionary with proposal content and metadata
+        """
+        if doc_id:
+            return self.proposal_generator.generate_from_doc_id(
+                doc_id=doc_id,
+                top_k=top_k,
+                company_info=company_info
+            )
+        elif query:
+            return self.proposal_generator.generate_from_query(
+                query=query,
+                top_k=top_k,
+                company_info=company_info
+            )
+        else:
+            raise ValueError("Either 'query' or 'doc_id' must be provided")
 
