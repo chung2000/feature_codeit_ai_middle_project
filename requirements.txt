@@ -2,17 +2,33 @@ langchain
 langchain-community 
 langchain-text-splitters 
 langchain-openai
-pandas 
-pypdf 
-chromadb 
+pandas
+pypdf
+chromadb
+langchain-chroma
 rapidfuzz
 olefile
+pyhwp  # HWP file parser for Korean documents
+python-docx  # DOCX file parser
+pyhwp
+rank_bm25
+pyyaml
+tqdm
+numpy
 
-pdf2image 
-pillow 
 opencv-python 
 pytesseract
 
 qdrant-client
 langchain-qdrant
 rank-bm25
+flashrank
+fastapi
+uvicorn
+
+# Evaluation
+rouge-score
+nltk
+
+# Environment variables
+python-dotenv
