@@ -23,8 +23,9 @@ qdrant-client
 langchain-qdrant
 rank-bm25
 flashrank
-fastapi
-uvicorn
+streamlit
+# fastapi
+# uvicorn
 
 # Evaluation
 rouge-score
@@ -32,3 +33,7 @@ nltk
 
 # Environment variables
 python-dotenv
+
+# Notebook / Demo
+notebook
+ipykernel

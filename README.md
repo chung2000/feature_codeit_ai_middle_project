@@ -36,38 +36,27 @@ Python(FastAPI) 백엔드와 Next.js 프론트엔드로 구성되어 있으며, 
 
 ### 필수 조건
 - Python 3.10 이상
-- Node.js 18 이상
 - OpenAI API Key (`.env` 설정 필수)
 
-### 간편 실행 (Makefile 사용)
-프로젝트 루트에서 터미널 2개를 열어 각각 실행합니다.
+### 실행 방법
+터미널에서 아래 명령어 하나만 입력하세요.
 
-**터미널 1 (백엔드 서버)**
 ```bash
-make run-backend
-# 실행 포트: localhost:8002
+make run
+# 또는: streamlit run app.py
 ```
 
-**터미널 2 (프론트엔드 화면)**
-```bash
-make run-frontend
-# 접속 주소: localhost:3000
-```
+브라우저에서 `http://localhost:8501`이 열립니다.
 
 ## 4. 기술 스택 (Tech Stack)
 
-### Backend
+### Stack
 - **Language**: Python 3.12
-- **Framework**: FastAPI
-- **LLM & RAG**: LangChain, OpenAI (GPT-5)
+- **Frontend/App**: **Streamlit** (통합 UI)
+- **LLM & RAG**: LangChain, OpenAI (gpt-5-mini)
 - **Vector DB**: ChromaDB
 - **Search**: BM25 + FlashRank (Re-ranking)
-- **Parser**: pyhwp (hwp5txt)
-
-### Frontend
-- **Framework**: Next.js 14 (App Router)
-- **Styling**: Tailwind CSS
-- **Icons**: Lucide React
+- **Embedding**: text-embedding-3
 
 ## 5. 참고 자료 및 산출물 (References)
 - **`study_guide.md`**: 프로젝트 개발 과정과 기술적 의사결정을 담은 상세 문서.
