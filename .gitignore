@@ -1,0 +1,9 @@
+__pycache__/
+*.ipynb_checkpoints/
+.env
+
+# 벡터 DB 폴더 (바이너리 파일이라 깃에 올리면 안 됨)
+rfp_database/
+
+# 원본 데이터 폴더 (PDF 등은 용량 크고 보안 문제 있음)
+data/
