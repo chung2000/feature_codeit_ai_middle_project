@@ -56,16 +56,31 @@ def main():
     
     try:
         if args.step in ["ingest", "all"]:
-            logger.info("Step 1: Ingest Agent - Document Parsing")
-            from src.ingest.ingest_agent import IngestAgent
+            logger.info("Step 1: Enhanced Ingest Agent - Document Parsing with Preprocessing")
+            from src.ingest.enhanced_ingest_agent import EnhancedIngestAgent
             
-            ingest_agent = IngestAgent(config)
-            ingest_agent.process_batch(
-                input_dir=config["ingest"]["input_dir"],
-                output_dir=config["ingest"]["output_dir"],
-                csv_path=config["ingest"]["metadata_csv"],
-            )
-            logger.info("✓ Ingest step completed")
+            # Check if enhanced ingest is enabled
+            use_enhanced = config.get("ingest", {}).get("use_enhanced", True)
+            
+            if use_enhanced:
+                ingest_agent = EnhancedIngestAgent(config)
+                result = ingest_agent.preprocess_and_ingest(
+                    input_dir=config["ingest"]["input_dir"],
+                    output_dir=config["ingest"]["output_dir"],
+                    csv_path=config["ingest"]["metadata_csv"],
+                )
+                logger.info(f"✓ Enhanced ingest step completed")
+                logger.info(f"  - Preprocessed CSV: {result.get('preprocessed_csv')}")
+                logger.info(f"  - Data summary: {result.get('summary')}")
+            else:
+                from src.ingest.ingest_agent import IngestAgent
+                ingest_agent = IngestAgent(config)
+                ingest_agent.process_batch(
+                    input_dir=config["ingest"]["input_dir"],
+                    output_dir=config["ingest"]["output_dir"],
+                    csv_path=config["ingest"]["metadata_csv"],
+                )
+                logger.info("✓ Ingest step completed")
         
         if args.step in ["chunking", "all"]:
             logger.info("Step 2: Chunking Agent - Text Chunking")

@@ -21,6 +21,7 @@ ingest:
   min_text_length: 100
   enable_ocr: false
   ocr_language: kor+eng
+  use_enhanced: true # Use enhanced ingest with preprocessing
 
 # Chunking Agent settings
 chunking:
@@ -28,6 +29,7 @@ chunking:
   chunk_overlap: 200
   min_chunk_size: 100
   use_section_based: true
+  use_optimized: true # Use optimized chunker based on EDA insights
   separators: ["\n\n", "\n", ". ", "! ", "? ", "。", " "]
 
 # Indexing Agent settings

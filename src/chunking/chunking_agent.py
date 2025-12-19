@@ -5,6 +5,7 @@ from typing import Dict, List
 
 from src.chunking.chunker import TextChunker
 from src.chunking.section_chunker import SectionChunker
+from src.chunking.optimized_chunker import OptimizedChunker
 from src.common.logger import get_logger
 from src.common.utils import load_json, save_jsonl
 from src.common.constants import (
@@ -32,7 +33,15 @@ class ChunkingAgent:
             chunk_overlap=self.chunk_overlap,
             separators=self.separators,
         )
+        self.optimized_chunker = OptimizedChunker(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+            min_chunk_size=self.min_chunk_size,
+        )
         self.section_chunker = SectionChunker()
+        
+        # Use optimized chunker by default (can be disabled)
+        self.use_optimized = chunk_cfg.get("use_optimized", True)
 
     def process_document(self, text: str, doc_id: str, metadata: Dict) -> List[Dict]:
         """Chunk a single document.
@@ -44,6 +53,15 @@ class ChunkingAgent:
         """
         # doc_id를 메타데이터에도 넣어두기
         metadata = {**metadata, "doc_id": doc_id}
+        
+        # Get file type from metadata
+        file_type = None
+        if "file_path" in metadata:
+            file_path = metadata["file_path"]
+            if file_path:
+                ext = Path(file_path).suffix.lower().replace(".", "").upper()
+                if ext in ["PDF", "HWP", "DOCX"]:
+                    file_type = ext
 
         if self.use_section_based:
             try:
@@ -56,10 +74,18 @@ class ChunkingAgent:
                         text_chunker=self.text_chunker,
                     )
             except Exception as e:
-                self.logger.warning(f"Section-based chunking failed, fallback to basic: {e}")
+                self.logger.warning(f"Section-based chunking failed, fallback to optimized: {e}")
 
-        # 기본 청킹
-        return self.text_chunker.chunk(text, doc_id=doc_id, metadata=metadata)
+        # Use optimized chunker (default) or basic chunker
+        if self.use_optimized:
+            return self.optimized_chunker.chunk(
+                text=text,
+                doc_id=doc_id,
+                metadata=metadata,
+                file_type=file_type
+            )
+        else:
+            return self.text_chunker.chunk(text, doc_id=doc_id, metadata=metadata)
 
     def process_batch(self, input_dir: str, output_path: str) -> None:
         """Process all preprocessed JSON files and write chunks to JSONL.
