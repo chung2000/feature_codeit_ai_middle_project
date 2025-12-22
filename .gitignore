@@ -37,9 +37,17 @@ ENV/
 .idea/
 
 # Data & Models
-data/
+data/eval
+data/features
+data/files
+data/predictions
+data/preprocessed
+data/raw
 !data/eval_results.json # 평가 결과는 공유하고 싶다면 유지, 아니면 이 줄도 삭제 가능
-!data/.gitkeep # 폴더 구조만 유지하고 싶을 때 사용
+!data/metadata.json
+!data/index
+!data/test_set.json
+
 
 # Mac
 .DS_Store
