@@ -21,6 +21,7 @@ wheels/
 *.egg
 .pytest_cache/
 .coverage
+tests/
 
 # Virtual Environment
 .venv/
@@ -45,7 +46,7 @@ data/preprocessed
 data/raw
 !data/eval_results.json # 평가 결과는 공유하고 싶다면 유지, 아니면 이 줄도 삭제 가능
 !data/metadata.json
-!data/index
+data/index/
 !data/test_set.json
 
 
@@ -64,3 +65,6 @@ web/.env.production.local
 web/npm-debug.log*
 web/yarn-debug.log*
 web/yarn-error.log*
+
+debug_retrieval.py
+debug_search_keyword.py

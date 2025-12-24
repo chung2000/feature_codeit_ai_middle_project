@@ -52,8 +52,12 @@ class HWPLoader(BaseLoader):
             text = result.stdout
             if not text.strip():
                  print(f"경고: 추출된 텍스트가 비어있습니다 ({self.file_path})")
+            
+            # [Fix] 파일명도 검색되도록 내용에 포함 (파일명: ... \n\n 내용...)
+            filename = os.path.basename(self.file_path)
+            enhanced_text = f"파일명: {filename}\n\n{text}"
 
-            return [Document(page_content=text, metadata={"source": self.file_path, "type": "hwp"})]
+            return [Document(page_content=enhanced_text, metadata={"source": self.file_path, "type": "hwp"})]
         
         except FileNotFoundError:
              print(f"오류: '{self.file_path}' 처리 중 'hwp5txt' 명령어를 찾을 수 없습니다. pyhwp가 설치되었는지 확인해주세요.")
