@@ -27,6 +27,8 @@ from src.indexing.vector_store import VectorStore
 from src.indexing.embedder import Embedder
 from src.retrieval.retrieval_agent import RetrievalAgent
 from src.generation.generation_agent import GenerationAgent
+from src.generation.file_based_rag import FileBasedRAG
+from src.generation.rag_enhanced_llm import RAGEnhancedLLM
 from src.common.llm_utils import create_llm_with_fallback
 
 
@@ -151,7 +153,7 @@ class ProposalChatResponse(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Initialize agents on startup."""
-    global config, retrieval_agent, generation_agent, logger
+    global config, retrieval_agent, generation_agent, file_based_rag, rag_enhanced_llm, logger
     
     logger = get_logger(__name__)
     logger.info("Initializing RFP RAG API...")
@@ -180,6 +182,19 @@ async def startup_event():
     # Initialize generation agent
     generation_agent = GenerationAgent(config["generation"], llm, retrieval_agent)
     
+    # Initialize file-based RAG (using JSON summaries)
+    summaries_dir = config.get("chunking", {}).get("summary_output_dir", "data/features/summaries")
+    summaries_by_file_dir = str(Path(summaries_dir) / "by_file")
+    if Path(summaries_by_file_dir).exists():
+        file_based_rag = FileBasedRAG(summaries_by_file_dir, config)
+        logger.info(f"File-based RAG initialized with summaries from: {summaries_by_file_dir}")
+        
+        # Initialize RAG-enhanced LLM (uses RAG context for better responses)
+        rag_enhanced_llm = RAGEnhancedLLM(summaries_by_file_dir, config)
+        logger.info("RAG-enhanced LLM initialized (uses learned RAG context)")
+    else:
+        logger.warning(f"Summaries directory not found: {summaries_by_file_dir}. File-based RAG disabled.")
+    
     logger.info("RFP RAG API initialized successfully!")
 
 
@@ -199,7 +214,8 @@ async def health():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "agents_initialized": retrieval_agent is not None and generation_agent is not None
+        "agents_initialized": retrieval_agent is not None and generation_agent is not None,
+        "file_based_rag_available": file_based_rag is not None
     }
 
 
@@ -328,11 +344,13 @@ async def extract(request: ExtractRequest):
         raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
 
 
-# Generate Proposal endpoint
+# Generate Proposal endpoint (using RAG-enhanced LLM)
 @app.post("/api/generate-proposal", response_model=ProposalResponse)
 async def generate_proposal(request: ProposalRequest):
     """
-    Generate a proposal based on RFP documents.
+    Generate a proposal based on RFP documents using RAG-enhanced LLM.
+    
+    이 엔드포인트는 RAG로 학습된 컨텍스트를 활용하여 더 정확하고 상세한 제안서를 생성합니다.
     
     Args:
         request: Proposal request with query or doc_id
@@ -340,81 +358,159 @@ async def generate_proposal(request: ProposalRequest):
     Returns:
         Generated proposal with sources
     """
-    if generation_agent is None:
-        raise HTTPException(status_code=503, detail="Generation agent not initialized")
-    
-    if not request.query and not request.doc_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Either 'query' or 'doc_id' must be provided"
-        )
-    
-    try:
-        # Convert conversation_history from Pydantic models to dicts
-        conv_history = None
-        if request.conversation_history:
-            conv_history = [
-                {"role": msg.role, "content": msg.content}
-                for msg in request.conversation_history
-            ]
+    # Use RAG-enhanced LLM if available, otherwise fallback to generation agent
+    if rag_enhanced_llm is not None:
+        if not request.query and not request.doc_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Either 'query' or 'doc_id' must be provided"
+            )
         
-        result = generation_agent.generate_proposal(
-            query=request.query,
-            doc_id=request.doc_id,
-            top_k=request.top_k,
-            company_info=request.company_info,
-            additional_notes=request.additional_notes,
-            custom_sections=request.custom_sections,
-            conversation_history=conv_history,
-            previous_proposal=request.previous_proposal
-        )
-        
-        # Extract analysis if present
-        proposal_text = result["proposal"]
-        analysis = None
-        if "---\n[응답 분석]" in proposal_text:
-            parts = proposal_text.split("---\n[응답 분석]\n")
-            if len(parts) > 1:
-                analysis_part = parts[1].split("\n---")[0]
-                analysis = analysis_part.strip()
-                # Remove analysis from proposal for cleaner output
-                proposal_text = parts[0].strip()
-        
-        # Get model info
-        model_used = None
         try:
-            if generation_agent.proposal_generator.llm:
-                model_used = generation_agent.proposal_generator.llm.model_name if hasattr(generation_agent.proposal_generator.llm, 'model_name') else str(generation_agent.proposal_generator.llm.model)
-        except:
-            pass
+            # Convert conversation_history from Pydantic models to dicts
+            conv_history = None
+            if request.conversation_history:
+                conv_history = [
+                    {"role": msg.role, "content": msg.content}
+                    for msg in request.conversation_history
+                ]
+            
+            # Build additional context from company info and custom sections
+            additional_context_parts = []
+            if request.company_info:
+                company_text = f"""회사 정보:
+- 회사명: {request.company_info.get('company_name', 'N/A')}
+- 설명: {request.company_info.get('description', 'N/A')}
+- 강점: {', '.join(request.company_info.get('strengths', []))}
+- 경험: {request.company_info.get('experience', 'N/A')}
+- 기술: {', '.join(request.company_info.get('technologies', []))}
+"""
+                additional_context_parts.append(company_text)
+            
+            if request.additional_notes:
+                additional_context_parts.append(f"추가 요청사항: {request.additional_notes}")
+            
+            if request.custom_sections:
+                additional_context_parts.append(f"추가 섹션: {', '.join(request.custom_sections)}")
+            
+            additional_context = "\n\n".join(additional_context_parts) if additional_context_parts else None
+            
+            # Generate using RAG-enhanced LLM
+            result = rag_enhanced_llm.generate_with_rag_context(
+                query=request.query or "사업 제안서",
+                doc_id=request.doc_id,
+                top_k=request.top_k or 30,
+                task_type="proposal",
+                additional_context=additional_context,
+                conversation_history=conv_history,
+                previous_output=request.previous_proposal
+            )
+            
+            proposal_text = result["response"]
+            
+            # Get model info
+            model_used = None
+            try:
+                if rag_enhanced_llm.llm:
+                    model_used = rag_enhanced_llm.llm.model_name if hasattr(rag_enhanced_llm.llm, 'model_name') else str(rag_enhanced_llm.llm.model)
+            except:
+                pass
+            
+            # Format sources
+            sources = [s.get("file_name", "") for s in result.get("sources", [])]
+            
+            return ProposalResponse(
+                proposal=proposal_text,
+                sources=sources,
+                query=result.get("query"),
+                doc_id=result.get("doc_id"),
+                total_chunks_used=result.get("total_chunks_used", 0),
+                response_length=len(proposal_text),
+                model_used=model_used,
+                analysis=None
+            )
+        except Exception as e:
+            logger.error(f"RAG-enhanced proposal generation failed: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Proposal generation failed: {str(e)}"
+            )
+    
+    # Fallback to original generation agent
+    elif generation_agent is None:
+        raise HTTPException(status_code=503, detail="Generation agent not initialized")
+    else:
+        if not request.query and not request.doc_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Either 'query' or 'doc_id' must be provided"
+            )
         
-        return ProposalResponse(
-            proposal=proposal_text,
-            sources=result["sources"],
-            query=result.get("query"),
-            doc_id=result.get("doc_id"),
-            total_chunks_used=result.get("total_chunks_used", 0),
-            response_length=len(proposal_text),
-            model_used=model_used,
-            analysis=analysis
-        )
-    except Exception as e:
-        logger.error(f"Proposal generation failed: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Proposal generation failed: {str(e)}"
-        )
+        try:
+            # Convert conversation_history from Pydantic models to dicts
+            conv_history = None
+            if request.conversation_history:
+                conv_history = [
+                    {"role": msg.role, "content": msg.content}
+                    for msg in request.conversation_history
+                ]
+            
+            result = generation_agent.generate_proposal(
+                query=request.query,
+                doc_id=request.doc_id,
+                top_k=request.top_k,
+                company_info=request.company_info,
+                additional_notes=request.additional_notes,
+                custom_sections=request.custom_sections,
+                conversation_history=conv_history,
+                previous_proposal=request.previous_proposal
+            )
+            
+            # Extract analysis if present
+            proposal_text = result["proposal"]
+            analysis = None
+            if "---\n[응답 분석]" in proposal_text:
+                parts = proposal_text.split("---\n[응답 분석]\n")
+                if len(parts) > 1:
+                    analysis_part = parts[1].split("\n---")[0]
+                    analysis = analysis_part.strip()
+                    proposal_text = parts[0].strip()
+            
+            # Get model info
+            model_used = None
+            try:
+                if generation_agent.proposal_generator.llm:
+                    model_used = generation_agent.proposal_generator.llm.model_name if hasattr(generation_agent.proposal_generator.llm, 'model_name') else str(generation_agent.proposal_generator.llm.model)
+            except:
+                pass
+            
+            return ProposalResponse(
+                proposal=proposal_text,
+                sources=result["sources"],
+                query=result.get("query"),
+                doc_id=result.get("doc_id"),
+                total_chunks_used=result.get("total_chunks_used", 0),
+                response_length=len(proposal_text),
+                model_used=model_used,
+                analysis=analysis
+            )
+        except Exception as e:
+            logger.error(f"Proposal generation failed: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Proposal generation failed: {str(e)}"
+            )
 
 
-# Proposal Chat endpoint (대화형 제안서 빌드업)
+# Proposal Chat endpoint (대화형 제안서 빌드업) - using RAG-enhanced LLM
 @app.post("/api/proposal-chat", response_model=ProposalChatResponse)
 async def proposal_chat(request: ProposalChatRequest):
     """
-    대화형 제안서 빌드업 채팅 엔드포인트.
+    대화형 제안서 빌드업 채팅 엔드포인트 (RAG-enhanced).
     
-    사용자와 대화를 주고받으며 점진적으로 제안서를 빌드업합니다.
-    - 일반 질문: 친절하게 답변
-    - 제안서 생성 요청: 제안서 생성
+    RAG로 학습된 컨텍스트를 활용하여 더 정확하고 자연스러운 대화를 제공합니다.
+    - 일반 질문: RAG 컨텍스트 기반 답변
+    - 제안서 생성 요청: RAG-enhanced 제안서 생성
     
     Args:
         request: 채팅 요청 (메시지, 대화 히스토리 등)
@@ -422,7 +518,10 @@ async def proposal_chat(request: ProposalChatRequest):
     Returns:
         응답 및 업데이트된 대화 히스토리
     """
-    if generation_agent is None:
+    # Use RAG-enhanced LLM if available
+    use_rag_enhanced = rag_enhanced_llm is not None
+    
+    if not use_rag_enhanced and generation_agent is None:
         raise HTTPException(status_code=503, detail="Generation agent not initialized")
     
     try:
@@ -466,17 +565,42 @@ async def proposal_chat(request: ProposalChatRequest):
                 # Default query
                 query = "사업"
             
-            # Generate proposal
-            result = generation_agent.generate_proposal(
-                query=query,
-                doc_id=doc_id,
-                top_k=10,
-                company_info=request.company_info,
-                conversation_history=conv_history[:-1],  # Exclude current message
-                previous_proposal=request.previous_proposal
-            )
-            
-            proposal_text = result["proposal"]
+            # Generate proposal using RAG-enhanced LLM or fallback
+            if use_rag_enhanced:
+                # Build additional context
+                additional_context_parts = []
+                if request.company_info:
+                    company_text = f"""회사 정보:
+- 회사명: {request.company_info.get('company_name', 'N/A')}
+- 설명: {request.company_info.get('description', 'N/A')}
+- 강점: {', '.join(request.company_info.get('strengths', []))}
+"""
+                    additional_context_parts.append(company_text)
+                
+                additional_context = "\n\n".join(additional_context_parts) if additional_context_parts else None
+                
+                result = rag_enhanced_llm.generate_with_rag_context(
+                    query=query or "사업 제안서",
+                    doc_id=doc_id,
+                    top_k=10,
+                    task_type="proposal",
+                    additional_context=additional_context,
+                    conversation_history=conv_history[:-1],
+                    previous_output=request.previous_proposal
+                )
+                proposal_text = result["response"]
+                sources = [s.get("file_name", "") for s in result.get("sources", [])]
+            else:
+                result = generation_agent.generate_proposal(
+                    query=query,
+                    doc_id=doc_id,
+                    top_k=10,
+                    company_info=request.company_info,
+                    conversation_history=conv_history[:-1],
+                    previous_proposal=request.previous_proposal
+                )
+                proposal_text = result["proposal"]
+                sources = result.get("sources", [])
             
             # Create friendly response
             response_text = f"""네, 제안서를 작성해드렸습니다!
@@ -492,7 +616,7 @@ async def proposal_chat(request: ProposalChatRequest):
                 response=response_text,
                 is_proposal=True,
                 proposal=proposal_text,
-                sources=result.get("sources", []),
+                sources=sources,
                 conversation_history=[
                     ConversationMessage(role=msg["role"], content=msg["content"])
                     for msg in conv_history
@@ -501,14 +625,24 @@ async def proposal_chat(request: ProposalChatRequest):
         
         # Otherwise, answer as a friendly assistant
         else:
-            # First, try to answer using RAG
+            # First, try to answer using RAG-enhanced LLM or fallback
             try:
                 # Use query or doc_id if available
                 search_query = request.query or request.message
                 
-                # Answer question using RAG
-                qa_result = generation_agent.answer_question(search_query)
-                answer = qa_result.get("answer", "")
+                if use_rag_enhanced:
+                    # Use RAG-enhanced LLM for Q&A
+                    qa_result = rag_enhanced_llm.generate_with_rag_context(
+                        query=search_query,
+                        doc_id=request.doc_id,
+                        top_k=5,
+                        task_type="qa"
+                    )
+                    answer = qa_result.get("response", "")
+                else:
+                    # Fallback to generation agent
+                    qa_result = generation_agent.answer_question(search_query)
+                    answer = qa_result.get("answer", "")
                 
                 # Make response more friendly and conversational
                 if "뭐" in request.message or "물어" in request.message or "질문" in request.message:
