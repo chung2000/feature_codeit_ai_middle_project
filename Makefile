@@ -47,3 +47,4 @@ run: setup db app
 clean:
 	@rm -rf .venv rfp_database data
 	@echo "🧹 초기화 완료"
+

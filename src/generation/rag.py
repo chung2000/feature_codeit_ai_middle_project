@@ -1,25 +1,31 @@
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
+from langchain_ollama import ChatOllama
 
 class RAGChain:
-    def __init__(self, config, vector_store_wrapper):
+    def __init__(self, config, vector_store_wrapper, model_name="gemma3:12b"):
         self.config = config
         self.vector_store_wrapper = vector_store_wrapper
+        self.model_name = model_name
         
-        # [안전장치] 설정값이 없으면 기본 모델(gpt-5-mini) 사용
-        llm_cfg = config.get('llm', {})
-        model_name = llm_cfg.get('model', 'gpt-5-mini')
-        
-        self.llm = ChatOpenAI(
-            model=model_name,
-            temperature=0
+        # 1. 검색기(Retriever) 설정 
+        self.retriever = self.vector_store_wrapper.vector_store.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": 8} 
         )
-        
+
+        # 2. LLM 설정
+        self.llm = ChatOllama(model=self.model_name, temperature=0)
+
+        # 3. 프롬프트 템플릿
         self.prompt = ChatPromptTemplate.from_template("""
-        당신은 RFP(제안요청서) 분석 전문가입니다. 
-        아래 제공된 [Context]를 바탕으로 질문에 대해 명확하고 구체적으로 답변해 주세요.
-        답변 시, 근거가 되는 내용이 어느 문서의 어떤 부분인지 참고하여 답변하세요.
+        당신은 RFP(제안요청서) 분석 전문가입니다.
+        아래 [Context]에 있는 문서 내용만을 바탕으로 질문에 대해 정확하고 구체적으로 답변하세요.
+        문서에 없는 내용은 지어내지 말고 "문서에서 정보를 찾을 수 없습니다"라고 답하세요.
+        
+        답변 끝에는 반드시 참고한 문서의 출처나 섹션명을 괄호() 안에 명시해주세요.
+        예: (문서의 "사업개요" 부분 참조)
 
         [Context]
         {context}
@@ -27,37 +33,60 @@ class RAGChain:
         [Question]
         {question}
 
-        [Answer]:
+        [Answer]
         """)
 
-    def generate_answer(self, question, selected_docs=None):
-        # 1. 검색 필터 및 K값 설정 (동적 할당)
-        # 기본은 5개만 가져오지만...
-        search_kwargs = {"k": 5}
-        
-        if selected_docs:
-             # [핵심 수정] 사용자가 문서를 '콕 집었을 때'는 경로를 맞춰주고
-             # 검색 개수(k)를 30개까지 확 늘려서 앞/뒤 내용을 다 긁어오게 합니다.
-             full_paths = [f"./data/01-raw/{doc}" for doc in selected_docs]
-             search_kwargs["filter"] = {"source": {"$in": full_paths}}
-             search_kwargs["k"] = 30  # <--- 문서를 지정했으면 30페이지 정도는 읽어봐야 정확함!
-
-        # [cite_start]2. 동적 검색기 생성 [cite: 25]
-        retriever = self.vector_store_wrapper.vector_store.as_retriever(
-            search_kwargs=search_kwargs
+        # 4. 체인 구성
+        self.chain = (
+            {"context": self.retriever, "question": RunnablePassthrough()}
+            | self.prompt
+            | self.llm
+            | StrOutputParser()
         )
+
+    def generate_answer(self, question, selected_docs=[]):
+        """
+        질문에 대한 답변과 참고 문서를 반환합니다.
+        selected_docs 필터가 있으면 해당 문서 내에서만 검색합니다.
+        """
         
-        # 3. 문서 검색 및 답변 생성
-        docs = retriever.invoke(question)
+        # 문서 필터링 적용 (search_kwargs 동적 수정)
+        search_kwargs = {"k": 8}
+        if selected_docs:
+            # metadata의 'source' 필드에 파일명이 포함되는지 확인 (ChromaDB 문법)
+            # 여기서는 간단하게 $in 연산자나 $or 연산자를 활용할 수 있으나,
+            # Chroma 버전에 따라 다르므로 단순하게 파일명 필터링을 시도합니다.
+            
+            # (주의) Chroma에서 복잡한 필터는 where 절을 사용해야 합니다.
+            # 여기서는 사용자가 선택한 파일명 목록(selected_docs) 중 하나라도 일치하면 가져오도록 합니다.
+            # 파일 경로가 전체 경로일 수 있으므로, 파일명만 추출해서 비교하는게 안전하지만
+            # 일단 selected_docs에 들어있는 값 그대로 필터링을 시도합니다.
+            
+            if len(selected_docs) == 1:
+                search_kwargs["filter"] = {"source": selected_docs[0]}
+            else:
+                # 2개 이상일 때는 $or 연산자 사용
+                search_kwargs["filter"] = {
+                    "$or": [{"source": doc} for doc in selected_docs]
+                }
         
-        def format_docs(documents):
-            # 뒤에 붙어있던 # 제거
-            return "\n\n".join([d.page_content for d in documents])
-        chain = self.prompt | self.llm | StrOutputParser()
+        # 리트리버 업데이트
+        self.retriever.search_kwargs = search_kwargs
         
-        answer = chain.invoke({
-            "context": format_docs(docs),
-            "question": question
-        })
+        # 1. 문서 검색 (Retrieve)
+        retrieved_docs = self.retriever.invoke(question)
         
-        return answer, docs
+        # 2. 답변 생성 (Generate)
+        # context를 포맷팅해서 문자열로 만듦
+        context_text = "\n\n".join([doc.page_content for doc in retrieved_docs])
+        
+        # chain.invoke에 딕셔너리가 아닌 문자열 등을 넘길 수도 있지만,
+        # 위에서 정의한 chain 구조상 invoke(question)을 하면 
+        # {"context": retriever...} 부분이 작동해야 하는데, 
+        # 여기서는 우리가 직접 context를 뽑았으므로, 프롬프트+LLM 부분만 따로 실행하거나
+        # 체인 구조를 그대로 둡니다.
+        
+        # 가장 깔끔한 방법: 체인 전체 실행
+        answer = self.chain.invoke(question)
+        
+        return answer, retrieved_docs
