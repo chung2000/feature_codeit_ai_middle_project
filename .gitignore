@@ -2,11 +2,13 @@ __pycache__/
 *.ipynb_checkpoints/
 .env
 
-# 벡터 DB 폴더 (바이너리 파일이라 깃에 올리면 안 됨)
-rfp_database/
+# [수정] 벡터 DB 폴더들 (뒤에 뭐가 붙든 rfp_database로 시작하면 다 무시)
+rfp_database*/
 
-# 원본 데이터 폴더 (PDF 등은 용량 크고 보안 문제 있음)
+# 원본 데이터 폴더
 data/
 
-# 가상환경 폴더 (절대 올리면 안 됨!)
+# 가상환경 폴더
 .venv/
+
+project_context.txt

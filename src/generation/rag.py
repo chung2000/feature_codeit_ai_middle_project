@@ -1,25 +1,44 @@
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
+from langchain_ollama import ChatOllama
 
 class RAGChain:
-    def __init__(self, config, vector_store_wrapper):
+    def __init__(self, config, vector_store_wrapper, model_name="gemma3:12b"):
         self.config = config
         self.vector_store_wrapper = vector_store_wrapper
+        self.model_name = model_name
         
-        # [안전장치] 설정값이 없으면 기본 모델(gpt-5-mini) 사용
-        llm_cfg = config.get('llm', {})
-        model_name = llm_cfg.get('model', 'gpt-5-mini')
-        
-        self.llm = ChatOpenAI(
-            model=model_name,
-            temperature=0
+        # 1. 검색기(Retriever) 설정
+        self.retriever = self.vector_store_wrapper.vector_store.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": 5}
         )
-        
+
+        # 2. LLM 설정
+        self.llm = ChatOllama(
+            model=self.model_name,
+            
+            # [청수님 설정] temperature=0.1 (창의성 억제, 사실 기반 답변 유도)
+            temperature=0.1,
+            
+            # [청수님 설정] top_p=0.95 (상위 95% 확률 내에서 단어 선택)
+            top_p=0.95,
+            
+            # [청수님 설정] repetition_penalty=1.1 -> Ollama에서는 'repeat_penalty'
+            repeat_penalty=1.1,
+            
+            # [청수님 설정] max_new_tokens=512 -> Ollama에서는 'num_predict'
+            num_predict=512
+        )
+
+        # 3. 프롬프트 템플릿
         self.prompt = ChatPromptTemplate.from_template("""
-        당신은 RFP(제안요청서) 분석 전문가입니다. 
-        아래 제공된 [Context]를 바탕으로 질문에 대해 명확하고 구체적으로 답변해 주세요.
-        답변 시, 근거가 되는 내용이 어느 문서의 어떤 부분인지 참고하여 답변하세요.
+        당신은 RFP(제안요청서) 분석 전문가입니다.
+        아래 [Context]에 있는 문서 내용만을 바탕으로 질문에 대해 정확하고 구체적으로 답변하세요.
+        문서에 없는 내용은 지어내지 말고 "문서에서 정보를 찾을 수 없습니다"라고 답하세요.
+        답변 끝에는 반드시 참고한 문서의 출처나 섹션명을 괄호() 안에 명시해주세요.
+        예: (문서의 "사업개요" 부분 참조)
 
         [Context]
         {context}
@@ -27,37 +46,46 @@ class RAGChain:
         [Question]
         {question}
 
-        [Answer]:
+        [Answer]
         """)
 
-    def generate_answer(self, question, selected_docs=None):
-        # 1. 검색 필터 및 K값 설정 (동적 할당)
-        # 기본은 5개만 가져오지만...
-        search_kwargs = {"k": 5}
-        
-        if selected_docs:
-             # [핵심 수정] 사용자가 문서를 '콕 집었을 때'는 경로를 맞춰주고
-             # 검색 개수(k)를 30개까지 확 늘려서 앞/뒤 내용을 다 긁어오게 합니다.
-             full_paths = [f"./data/01-raw/{doc}" for doc in selected_docs]
-             search_kwargs["filter"] = {"source": {"$in": full_paths}}
-             search_kwargs["k"] = 30  # <--- 문서를 지정했으면 30페이지 정도는 읽어봐야 정확함!
-
-        # [cite_start]2. 동적 검색기 생성 [cite: 25]
-        retriever = self.vector_store_wrapper.vector_store.as_retriever(
-            search_kwargs=search_kwargs
+        # 4. 체인 구성 (수정됨: 리트리버를 체인에서 뺌)
+        # 이제 체인은 이미 완성된 'context' 문자열과 'question'만 받아서 처리합니다.
+        self.chain = (
+            self.prompt
+            | self.llm
+            | StrOutputParser()
         )
+
+    def generate_answer(self, question, selected_docs=[]):
+        """
+        1. 문서 검색 (Retrieve)
+        2. 텍스트 변환 (Format)
+        3. 답변 생성 (Generate)
+        """
         
-        # 3. 문서 검색 및 답변 생성
-        docs = retriever.invoke(question)
+        # 필터링 설정
+        search_kwargs = {"k": 5}
+        if selected_docs:
+            if len(selected_docs) == 1:
+                search_kwargs["filter"] = {"source": selected_docs[0]}
+            else:
+                search_kwargs["filter"] = {
+                    "$or": [{"source": doc} for doc in selected_docs]
+                }
+        self.retriever.search_kwargs = search_kwargs
         
-        def format_docs(documents):
-            # 뒤에 붙어있던 # 제거
-            return "\n\n".join([d.page_content for d in documents])
-        chain = self.prompt | self.llm | StrOutputParser()
+        # [단계 1] 문서를 먼저 가져옵니다.
+        retrieved_docs = self.retriever.invoke(question)
         
-        answer = chain.invoke({
-            "context": format_docs(docs),
+        # [단계 2] 가져온 문서에서 '글자'만 뽑아서 하나의 문자열로 합칩니다. (중요!)
+        # 이렇게 하면 AI는 절대 Document 객체(이상한 코드)를 볼 수 없습니다.
+        context_text = "\n\n".join([doc.page_content for doc in retrieved_docs])
+        
+        # [단계 3] 깨끗한 텍스트를 체인에 넣어줍니다.
+        answer = self.chain.invoke({
+            "context": context_text, 
             "question": question
         })
         
-        return answer, docs
+        return answer, retrieved_docs
